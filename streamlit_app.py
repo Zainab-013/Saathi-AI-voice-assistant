@@ -117,12 +117,14 @@ if not GOOGLE_API_KEY:
 
 # ==================== LOAD MODELS ====================
 
+@st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2", model_kwargs={'device': 'cpu'})
 
-def load_faiss(embeddings):
+@st.cache_resource
+def load_faiss(_embeddings):
     try:
-        return FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
+        return FAISS.load_local(DB_FAISS_PATH, _embeddings, allow_dangerous_deserialization=True)
     except:
         return None
 
@@ -688,14 +690,7 @@ elif st.session_state.step == "done":
     </div>
     """, unsafe_allow_html=True)
     
-    # Show source documents / citations
-    if "retrieved_docs" in st.session_state and st.session_state.retrieved_docs:
-        st.markdown("<h4 style='color:#e2e8f0; margin-top:20px;'>📄 Source Documents</h4>", unsafe_allow_html=True)
-        for idx, doc in enumerate(st.session_state.retrieved_docs):
-            page_num = doc.metadata.get("page", 0) + 1
-            
-            with st.expander(f"🔍 Source {idx+1} (Page {page_num})"):
-                st.write(doc.page_content)
+
     
     # Play audio (once per state transition)
     if st.session_state.audio_bytes and not st.session_state.audio_played:
@@ -715,7 +710,7 @@ elif st.session_state.step == "done":
 # ==================== TEXT INPUT ====================
 
 st.markdown("---")
-st.caption("💬 Or type your question:")
+st.markdown("**💬 Or type your question:**")
 text_input = st.chat_input("Type here...")
 
 if text_input and text_input.strip():
