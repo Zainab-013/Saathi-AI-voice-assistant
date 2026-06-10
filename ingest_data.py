@@ -1,5 +1,4 @@
 import os
-from langchain_community.document_loaders.directory import DirectoryLoader
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -25,8 +24,16 @@ def create_vector_db():
 
     # 2. Load PDF Documents
     print(f"Scanning '{DATA_PATH}' for PDF files...")
-    loader = DirectoryLoader(DATA_PATH, glob='*.pdf', loader_cls=PyPDFLoader)
-    documents = loader.load()
+    documents = []
+    if os.path.exists(DATA_PATH):
+        for file in os.listdir(DATA_PATH):
+            if file.lower().endswith(".pdf"):
+                pdf_path = os.path.join(DATA_PATH, file)
+                try:
+                    loader = PyPDFLoader(pdf_path)
+                    documents.extend(loader.load())
+                except Exception as e:
+                    print(f"Error loading {file}: {e}")
     
     if not documents:
         print(f"No PDF files found in '{DATA_PATH}'. Exiting.")
