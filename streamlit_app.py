@@ -524,17 +524,6 @@ with st.sidebar:
     st.markdown("**Vector Store**")
     if st.session_state.db_loaded:
         st.success("✅ Loaded successfully")
-        if st.button("🔄 Rebuild Store", use_container_width=True):
-            with st.spinner("Rebuilding store..."):
-                try:
-                    from ingest_data import create_vector_db
-                    create_vector_db()
-                    st.cache_resource.clear()
-                    st.cache_data.clear()
-                    st.success("✅ Store rebuilt!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
     else:
         st.warning("❌ Not found")
         if st.button("📥 Load Vector Store", use_container_width=True, type="primary"):
