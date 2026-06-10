@@ -200,7 +200,14 @@
         async function startRecording() {
             try {
                 statusTxt.innerText = "Requesting microphone permission...";
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: false
+                });
                 
                 audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
                 analyser = audioContext.createAnalyser();
@@ -395,8 +402,16 @@
         }
 
         function floatTo16BitPCM(output, offset, input) {
+            let maxAmp = 0;
+            for (let i = 0; i < input.length; i++) {
+                const abs = Math.abs(input[i]);
+                if (abs > maxAmp) maxAmp = abs;
+            }
+            // Scale audio to 95% of maximum amplitude to boost quiet recordings
+            const scale = maxAmp > 0.01 ? (0.95 / maxAmp) : 1.0;
+
             for (let i = 0; i < input.length; i++, offset += 2) {
-                const s = Math.max(-1, Math.min(1, input[i]));
+                const s = Math.max(-1, Math.min(1, input[i] * scale));
                 output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
             }
         }

@@ -334,8 +334,8 @@ def correct_transcription(text):
     
     return corrected
 
-def transcribe_audio():
-    """Transcribe audio file to text - tries multiple languages and picks best result"""
+def transcribe_audio(selected_lang="Auto Detect"):
+    """Transcribe audio file to text based on the preferred language configuration"""
     audio_path = st.session_state.audio_file
     if not os.path.exists(audio_path):
         return "", "English"
@@ -350,54 +350,81 @@ def transcribe_audio():
     
     results = []
     
-    # Try English with higher accuracy settings
-    try:
-        text = recognizer.recognize_google(audio, language="en-US", show_all=True)
-        if text and isinstance(text, dict) and 'alternative' in text:
-            for alt in text['alternative'][:3]:  # Get top 3 alternatives
-                if 'transcript' in alt:
-                    results.append(('en', alt['transcript'], alt.get('confidence', 0.5)))
-        elif text and isinstance(text, str):
-            results.append(('en', text, 0.5))
-    except:
-        pass
-    
-    # Try English-India
-    try:
-        text = recognizer.recognize_google(audio, language="en-IN")
-        if text and text.strip():
-            results.append(('en', text.strip(), 0.4))
-    except:
-        pass
-    
-    # Try Hindi
-    try:
-        text = recognizer.recognize_google(audio, language="hi-IN")
-        if text and text.strip():
-            results.append(('hi', text.strip(), 0.4))
-    except:
-        pass
-    
-    # Try Tamil
-    try:
-        text = recognizer.recognize_google(audio, language="ta-IN")
-        if text and text.strip():
-            results.append(('ta', text.strip(), 0.3))
-    except:
-        pass
-    
-    # Try Telugu
-    try:
-        text = recognizer.recognize_google(audio, language="te-IN")
-        if text and text.strip():
-            results.append(('te', text.strip(), 0.3))
-    except:
-        pass
-    
+    def try_lang(lang_code, weight):
+        try:
+            text = recognizer.recognize_google(audio, language=lang_code)
+            if text and text.strip():
+                return text.strip()
+        except:
+            pass
+        return None
+
+    if selected_lang == "English":
+        # Check en-IN first (good for Indian English accent), fallback to en-US
+        text = try_lang("en-IN", 1.0)
+        if text:
+            results.append(('en', text, 1.0))
+        else:
+            text = try_lang("en-US", 0.9)
+            if text:
+                results.append(('en', text, 0.9))
+                
+    elif selected_lang == "Hindi":
+        text = try_lang("hi-IN", 1.0)
+        if text:
+            results.append(('hi', text, 1.0))
+            
+    elif selected_lang == "Tamil":
+        text = try_lang("ta-IN", 1.0)
+        if text:
+            results.append(('ta', text, 1.0))
+            
+    elif selected_lang == "Telugu":
+        text = try_lang("te-IN", 1.0)
+        if text:
+            results.append(('te', text, 1.0))
+            
+    elif selected_lang == "Hinglish":
+        # Run en-IN and hi-IN for hybrid phrases
+        text_en = try_lang("en-IN", 0.9)
+        text_hi = try_lang("hi-IN", 0.8)
+        if text_en:
+            results.append(('en', text_en, 0.9))
+        if text_hi:
+            results.append(('hi', text_hi, 0.8))
+            
+    else:  # Auto Detect (fallback to checking all sequentially)
+        try:
+            text = recognizer.recognize_google(audio, language="en-US", show_all=True)
+            if text and isinstance(text, dict) and 'alternative' in text:
+                for alt in text['alternative'][:3]:
+                    if 'transcript' in alt:
+                        results.append(('en', alt['transcript'], alt.get('confidence', 0.5)))
+            elif text and isinstance(text, str):
+                results.append(('en', text, 0.5))
+        except:
+            pass
+            
+        text = try_lang("en-IN", 0.4)
+        if text:
+            results.append(('en', text, 0.4))
+            
+        text = try_lang("hi-IN", 0.4)
+        if text:
+            results.append(('hi', text, 0.4))
+            
+        text = try_lang("ta-IN", 0.3)
+        if text:
+            results.append(('ta', text, 0.3))
+            
+        text = try_lang("te-IN", 0.3)
+        if text:
+            results.append(('te', text, 0.3))
+
     if not results:
         return "", "English"
     
-    # Sort by confidence and pick best
+    # Sort by confidence/weight and pick best
     results.sort(key=lambda x: x[2], reverse=True)
     best_lang, best_text, _ = results[0]
     
@@ -406,12 +433,15 @@ def transcribe_audio():
         best_text = correct_transcription(best_text)
     
     # Detect actual language
-    if best_lang == 'ta':
-        return best_text, "Tamil"
-    elif best_lang == 'te':
-        return best_text, "Telugu"
+    if selected_lang in ["English", "Hindi", "Tamil", "Telugu", "Hinglish"]:
+        return best_text, selected_lang
     else:
-        return best_text, detect_language(best_text)
+        if best_lang == 'ta':
+            return best_text, "Tamil"
+        elif best_lang == 'te':
+            return best_text, "Telugu"
+        else:
+            return best_text, detect_language(best_text)
 
 def get_answer(question, lang):
     if qa_chain is None:
@@ -483,10 +513,13 @@ if "retrieved_docs" not in st.session_state:
 with st.sidebar:
     st.markdown("### 🎙️ Voice AI")
     st.markdown("---")
-    st.markdown("**Languages**")
-    st.caption("🇬🇧 English • 🇮🇳 Hindi")
-    st.caption("🇮🇳 Tamil • 🇮🇳 Telugu")
-    st.caption("🔀 Hinglish")
+    st.markdown("**Transcription Settings**")
+    selected_language = st.selectbox(
+        "Preferred Speaking Language",
+        options=["Auto Detect", "English", "Hindi", "Hinglish", "Tamil", "Telugu"],
+        index=0,
+        help="Specifying your speaking language will significantly speed up responses."
+    )
     st.markdown("---")
     st.markdown("**Vector Store**")
     if st.session_state.db_loaded:
@@ -594,7 +627,7 @@ elif st.session_state.step == "listening":
                 f.write(audio_bytes)
             
             # Transcribe the saved file
-            text, lang = transcribe_audio()
+            text, lang = transcribe_audio(selected_language)
             
             if text:
                 st.session_state.transcript = text
@@ -670,10 +703,9 @@ elif st.session_state.step == "done":
     if "retrieved_docs" in st.session_state and st.session_state.retrieved_docs:
         st.markdown("<h4 style='color:#e2e8f0; margin-top:20px;'>📄 Source Documents</h4>", unsafe_allow_html=True)
         for idx, doc in enumerate(st.session_state.retrieved_docs):
-            source_file = os.path.basename(doc.metadata.get("source", "Unknown file"))
             page_num = doc.metadata.get("page", 0) + 1
             
-            with st.expander(f"🔍 Source {idx+1}: {source_file} (Page {page_num})"):
+            with st.expander(f"🔍 Source {idx+1} (Page {page_num})"):
                 st.write(doc.page_content)
     
     # Play audio (once per state transition)
