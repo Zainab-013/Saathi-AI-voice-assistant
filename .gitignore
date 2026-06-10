@@ -18,6 +18,7 @@ venv.bak/
 # Environment variables
 .env
 .env.local
+.streamlit/secrets.toml
 
 # IDEs
 .vscode/
