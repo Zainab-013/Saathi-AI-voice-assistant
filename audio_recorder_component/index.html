@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .recorder-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 400px;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        .record-btn {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #3b82f6, #6366f1);
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+            z-index: 10;
+        }
+
+        .record-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 25px rgba(99, 102, 241, 0.6);
+        }
+
+        .record-btn.recording {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            box-shadow: 0 0 25px rgba(239, 68, 68, 0.8);
+            animation: pulse-border 1.5s infinite;
+        }
+
+        .record-btn.disabled {
+            background: #4b5563;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .visualizer-container {
+            width: 100%;
+            height: 60px;
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        canvas.recording {
+            border: 1px solid rgba(99, 102, 241, 0.5);
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.15);
+        }
+
+        .status-txt {
+            margin-top: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #94a3b8;
+            height: 20px;
+            text-align: center;
+        }
+
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7), 0 4px 20px rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0), 0 4px 20px rgba(239, 68, 68, 0.4); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), 0 4px 20px rgba(239, 68, 68, 0.4); }
+        }
+
+        .ripple {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(239, 68, 68, 0.3);
+            animation: ripple-effect 1.5s infinite;
+            z-index: 1;
+            display: none;
+        }
+
+        @keyframes ripple-effect {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(2.2); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="recorder-container">
+        <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+            <div id="ripple-el" class="ripple"></div>
+            <button id="record-btn" class="record-btn">🎙️</button>
+        </div>
+        <div class="visualizer-container">
+            <canvas id="canvas"></canvas>
+        </div>
+        <div id="status-txt" class="status-txt">Click to record your question</div>
+    </div>
+
+    <script>
+        // --- Streamlit Messaging API ---
+        function sendMessageToStreamlitClient(type, data) {
+            const outData = Object.assign({ isStreamlitMessage: true, type: type }, data);
+            window.parent.postMessage(outData, "*");
+        }
+
+        function sendDataToPython(data) {
+            sendMessageToStreamlitClient("streamlit:setComponentValue", data);
+        }
+
+        // Notify Streamlit that component is ready
+        sendMessageToStreamlitClient("streamlit:componentReady", { apiVersion: 1 });
+
+        // --- Recording Variables ---
+        let isRecording = false;
+        let audioContext;
+        let processor;
+        let micStream;
+        let recBuffers = [];
+        let recLength = 0;
+        const sampleRate = 16000;
+        
+        // --- Visualizer Variables ---
+        let analyser;
+        let dataArray;
+        let volume = 0;
+        let phase = 0;
+        const canvas = document.getElementById("canvas");
+        const canvasCtx = canvas.getContext("2d");
+        let animationFrameId;
+
+        const recordBtn = document.getElementById("record-btn");
+        const rippleEl = document.getElementById("ripple-el");
+        const statusTxt = document.getElementById("status-txt");
+
+        // Set initial canvas size
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            drawWaveformEmpty();
+        }
+        window.onload = resizeCanvas;
+        window.onresize = resizeCanvas;
+
+        function drawWaveformEmpty() {
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            canvasCtx.lineWidth = 2;
+            canvasCtx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(0, canvas.height / 2);
+            canvasCtx.lineTo(canvas.width, canvas.height / 2);
+            canvasCtx.stroke();
+        }
+
+        // --- Recording Handlers ---
+        recordBtn.addEventListener("click", async () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                await startRecording();
+            }
+        });
+
+        async function startRecording() {
+            try {
+                statusTxt.innerText = "Requesting microphone permission...";
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 512;
+                dataArray = new Uint8Array(analyser.fftSize);
+
+                const source = audioContext.createMediaStreamSource(micStream);
+                source.connect(analyser);
+
+                // Setup ScriptProcessorNode for recording (stereo to mono)
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                recBuffers = [];
+                recLength = 0;
+
+                processor.onaudioprocess = (e) => {
+                    const inputBuffer = e.inputBuffer.getChannelData(0);
+                    // Copy to prevent garbage collection issues
+                    const chunk = new Float32Array(inputBuffer.length);
+                    chunk.set(inputBuffer);
+                    recBuffers.push(chunk);
+                    recLength += chunk.length;
+                };
+
+                isRecording = true;
+                recordBtn.classList.add("recording");
+                canvas.classList.add("recording");
+                recordBtn.innerText = "⏹️";
+                rippleEl.style.display = "block";
+                statusTxt.innerText = "Listening... Click stop when finished.";
+                
+                visualize();
+            } catch (err) {
+                console.error("Mic access error:", err);
+                statusTxt.innerText = "Error accessing microphone. Check browser permissions.";
+            }
+        }
+
+        function stopRecording() {
+            if (!isRecording) return;
+            
+            statusTxt.innerText = "Processing audio...";
+            recordBtn.classList.add("disabled");
+            recordBtn.disabled = true;
+
+            // Stop nodes
+            if (processor) processor.disconnect();
+            if (micStream) micStream.getTracks().forEach(track => track.stop());
+            if (audioContext) audioContext.close();
+
+            cancelAnimationFrame(animationFrameId);
+
+            // Export to WAV and send to Streamlit
+            setTimeout(() => {
+                const wavBlob = exportWAV(recBuffers, recLength, sampleRate);
+                
+                const reader = new FileReader();
+                reader.readAsDataURL(wavBlob);
+                reader.onloadend = () => {
+                    const base64Data = reader.result.split(',')[1];
+                    sendDataToPython(base64Data);
+                    
+                    // Reset Button UI
+                    isRecording = false;
+                    recordBtn.classList.remove("recording");
+                    canvas.classList.remove("recording");
+                    recordBtn.classList.remove("disabled");
+                    recordBtn.disabled = false;
+                    recordBtn.innerText = "🎙️";
+                    rippleEl.style.display = "none";
+                    statusTxt.innerText = "Audio sent. Ready to record again.";
+                    drawWaveformEmpty();
+                };
+            }, 100);
+        }
+
+        // --- Visualizer Function ---
+        function visualize() {
+            if (!isRecording) return;
+
+            animationFrameId = requestAnimationFrame(visualize);
+            analyser.getByteTimeDomainData(dataArray);
+
+            // Calculate RMS volume level
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                const val = (dataArray[i] - 128) / 128;
+                sum += val * val;
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            volume = volume * 0.7 + rms * 0.3; // Smooth transition
+
+            // Clear canvas to reveal CSS background
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Increment phase
+            phase += 0.08 + volume * 0.05;
+
+            const width = canvas.width;
+            const height = canvas.height;
+            const centerY = height / 2;
+
+            // Render 3 overlapping animated sine waves
+            const waves = [
+                {
+                    freq: 1.5,
+                    amp: 0.8,
+                    phaseOffset: phase,
+                    color: 'rgba(56, 189, 248, 0.8)', // Sky Blue
+                    lineWidth: 3
+                },
+                {
+                    freq: 2.2,
+                    amp: 0.5,
+                    phaseOffset: -phase * 0.7,
+                    color: 'rgba(129, 140, 248, 0.6)', // Indigo
+                    lineWidth: 2
+                },
+                {
+                    freq: 3.5,
+                    amp: 0.3,
+                    phaseOffset: phase * 1.3,
+                    color: 'rgba(244, 63, 94, 0.4)', // Rose / Pink
+                    lineWidth: 1.5
+                }
+            ];
+
+            waves.forEach(wave => {
+                canvasCtx.beginPath();
+                canvasCtx.lineWidth = wave.lineWidth;
+                canvasCtx.strokeStyle = wave.color;
+
+                for (let x = 0; x < width; x++) {
+                    const normalizedX = x / width;
+                    // Envelope (bell curve) to fade waves at boundaries
+                    const envelope = Math.pow(Math.sin(normalizedX * Math.PI), 1.5);
+                    
+                    const angle = normalizedX * wave.freq * 2 * Math.PI + wave.phaseOffset;
+                    // Dynamic height from volume, with a baseline pulse so it's never completely dead
+                    const waveAmp = (volume * 0.95 + 0.05) * centerY * wave.amp;
+                    const y = centerY + Math.sin(angle) * waveAmp * envelope;
+
+                    if (x === 0) {
+                        canvasCtx.moveTo(x, y);
+                    } else {
+                        canvasCtx.lineTo(x, y);
+                    }
+                }
+                canvasCtx.stroke();
+            });
+        }
+
+        // --- WAV Encoding Functions (Pure JS, no ffmpeg required!) ---
+        function exportWAV(buffers, length, rate) {
+            const merged = mergeBuffers(buffers, length);
+            const dataview = encodeWAV(merged, rate);
+            return new Blob([dataview], { type: 'audio/wav' });
+        }
+
+        function mergeBuffers(buffers, length) {
+            const result = new Float32Array(length);
+            let offset = 0;
+            for (let i = 0; i < buffers.length; i++) {
+                result.set(buffers[i], offset);
+                offset += buffers[i].length;
+            }
+            return result;
+        }
+
+        function encodeWAV(samples, rate) {
+            const buffer = new ArrayBuffer(44 + samples.length * 2);
+            const view = new DataView(buffer);
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + samples.length * 2, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, rate, true);
+            view.setUint32(28, rate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, samples.length * 2, true);
+
+            floatTo16BitPCM(view, 44, samples);
+            return view;
+        }
+
+        function floatTo16BitPCM(output, offset, input) {
+            for (let i = 0; i < input.length; i++, offset += 2) {
+                const s = Math.max(-1, Math.min(1, input[i]));
+                output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+    </script>
+</body>
+</html>
