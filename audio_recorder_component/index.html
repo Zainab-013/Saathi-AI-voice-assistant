@@ -253,9 +253,11 @@
                 statusTxt.innerText = "Listening... Click stop when finished.";
                 
                 visualize();
+                updateFrameHeight();
             } catch (err) {
                 console.error("Mic access error:", err);
                 statusTxt.innerText = "Error accessing microphone. Check browser permissions.";
+                updateFrameHeight();
             }
         }
 
@@ -293,6 +295,7 @@
                     rippleEl.style.display = "none";
                     statusTxt.innerText = "Audio sent. Ready to record again.";
                     drawWaveformEmpty();
+                    updateFrameHeight();
                 };
             }, 100);
         }

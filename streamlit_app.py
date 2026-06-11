@@ -101,6 +101,8 @@ st.markdown("""
 # --- LOAD ENV ---
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY and "GOOGLE_API_KEY" in st.secrets:
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 DB_FAISS_PATH = "vectorstore/db_faiss"
 
 LANGUAGES = {
@@ -465,6 +467,8 @@ def get_gtts_code(lang):
 
 def generate_tts(text, lang):
     """Generate TTS. If pydub/ffmpeg is available, applies speedup and padding, otherwise returns raw gTTS audio."""
+    if not text or not text.strip():
+        return b""
     tts = gTTS(text=text, lang=get_gtts_code(lang), slow=False)
     buf = io.BytesIO()
     tts.write_to_fp(buf)
@@ -561,6 +565,14 @@ with st.sidebar:
 
 st.markdown("<h1 style='text-align:center; color:#e2e8f0;'>🎙️ Voice AI Assistant</h1>", unsafe_allow_html=True)
 
+if "error_message" in st.session_state and st.session_state.error_message:
+    st.error(st.session_state.error_message)
+    st.session_state.error_message = ""
+
+if "warning_message" in st.session_state and st.session_state.warning_message:
+    st.warning(st.session_state.warning_message)
+    st.session_state.warning_message = ""
+
 if not st.session_state.db_loaded:
     st.warning("⚠️ Semantic search database (FAISS) not found or not loaded.")
     st.markdown("""
@@ -631,14 +643,12 @@ elif st.session_state.step == "listening":
                 st.session_state.lang = lang
                 st.session_state.step = "processing"
             else:
-                st.warning("⚠️ Couldn't hear you. Try again.")
+                st.session_state.warning_message = "⚠️ Couldn't hear you. Try again."
                 st.session_state.step = "idle"
-                time.sleep(2)
             st.rerun()
         except Exception as e:
-            st.error(f"Error: {str(e)[:80]}")
+            st.session_state.error_message = f"Error: {str(e)[:80]}"
             st.session_state.step = "idle"
-            time.sleep(2)
             st.rerun()
 
 elif st.session_state.step == "processing":
