@@ -19,8 +19,7 @@ def create_vector_db():
     # 1. Setup Data Directory
     if not os.path.exists(DATA_PATH):
         os.makedirs(DATA_PATH)
-        print(f"Directory '{DATA_PATH}' created. Please add your .pdf files there and run this script again.")
-        return
+        raise ValueError(f"Directory '{DATA_PATH}' was missing. Created it, but it is empty. Please place your PDF files there.")
 
     # 2. Load PDF Documents
     print(f"Scanning '{DATA_PATH}' for PDF files...")
@@ -36,8 +35,7 @@ def create_vector_db():
                     print(f"Error loading {file}: {e}")
     
     if not documents:
-        print(f"No PDF files found in '{DATA_PATH}'. Exiting.")
-        return
+        raise ValueError(f"No PDF files found in '{DATA_PATH}'. Please place your PDF files there.")
 
     print(f"Loaded {len(documents)} documents.")
 

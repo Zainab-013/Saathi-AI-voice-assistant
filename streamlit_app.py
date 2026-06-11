@@ -136,14 +136,20 @@ def build_chain(db, model):
     if db is None:
         return None
     
-    def qa_chain(question):
+    def qa_chain(question, lang="English"):
         try:
             docs = db.similarity_search(question, k=3)
             # Store the retrieved documents in the session state for reference in the UI
             st.session_state.retrieved_docs = docs
             context = "\n\n".join([doc.page_content for doc in docs])
             
-            prompt = f"""Answer the question using the context provided. Keep answer brief (1-2 sentences).
+            prompt = f"""Answer the question using the context provided. Keep the answer brief (1-2 sentences).
+You must respond in the "{lang}" language.
+- If the language is "Hindi", write in the Hindi Devanagari script.
+- If the language is "Hinglish", write Hindi words using the Roman/English alphabet (transliterated).
+- If the language is "Tamil", write in the Tamil script.
+- If the language is "Telugu", write in the Telugu script.
+- If the language is "English", write in standard English.
 
 Context:
 {context}
@@ -449,7 +455,7 @@ def get_answer(question, lang):
     if qa_chain is None:
         return "Knowledge base not loaded."
     try:
-        answer = qa_chain(question)
+        answer = qa_chain(question, lang)
         return answer
     except Exception as e:
         return f"Error: {str(e)[:100]}"
