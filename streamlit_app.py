@@ -119,11 +119,9 @@ if not GOOGLE_API_KEY:
 
 # ==================== LOAD MODELS ====================
 
-@st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2", model_kwargs={'device': 'cpu'})
 
-@st.cache_resource
 def load_faiss(_embeddings):
     try:
         return FAISS.load_local(DB_FAISS_PATH, _embeddings, allow_dangerous_deserialization=True)
@@ -177,13 +175,28 @@ Answer:"""
 if "db_loaded" not in st.session_state:
     st.session_state.db_loaded = False
 
-with st.spinner("🚀 Loading..."):
-    embeddings = load_embeddings()
-    db = load_faiss(embeddings)
-    gemini_model = setup_gemini()
-    qa_chain = build_chain(db, gemini_model)
-    if db is not None:
-        st.session_state.db_loaded = True
+# Load models and database, storing them in st.session_state to avoid Streamlit caching bugs
+if "embeddings" not in st.session_state:
+    with st.spinner("🚀 Loading Embeddings model..."):
+        st.session_state.embeddings = load_embeddings()
+
+if "db" not in st.session_state:
+    st.session_state.db = load_faiss(st.session_state.embeddings)
+
+if "gemini_model" not in st.session_state:
+    st.session_state.gemini_model = setup_gemini()
+
+if "qa_chain" not in st.session_state:
+    st.session_state.qa_chain = build_chain(st.session_state.db, st.session_state.gemini_model)
+
+# Assign local references for app code
+embeddings = st.session_state.embeddings
+db = st.session_state.db
+gemini_model = st.session_state.gemini_model
+qa_chain = st.session_state.qa_chain
+
+if db is not None:
+    st.session_state.db_loaded = True
 
 # ==================== LANGUAGE DETECTION ====================
 
@@ -543,8 +556,10 @@ with st.sidebar:
                 try:
                     from ingest_data import create_vector_db
                     create_vector_db()
-                    st.cache_resource.clear()
-                    st.cache_data.clear()
+                    # Clear session state cache to reload the new database files
+                    for key in ["db", "qa_chain"]:
+                        if key in st.session_state:
+                            del st.session_state[key]
                     st.success("✅ Store loaded!")
                     st.rerun()
                 except Exception as e:
@@ -559,6 +574,10 @@ with st.sidebar:
     if st.button("🔄 Clear Cache", use_container_width=True):
         st.cache_resource.clear()
         st.cache_data.clear()
+        # Clear manually cached session objects
+        for key in ["embeddings", "db", "gemini_model", "qa_chain"]:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
 
 # ==================== MAIN UI ====================
@@ -588,8 +607,10 @@ if not st.session_state.db_loaded:
             try:
                 from ingest_data import create_vector_db
                 create_vector_db()
-                st.cache_resource.clear()
-                st.cache_data.clear()
+                # Clear session state cache to reload the new database files
+                for key in ["db", "qa_chain"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
                 st.success("✅ FAISS database built successfully! Reloading...")
                 st.rerun()
             except Exception as e:
