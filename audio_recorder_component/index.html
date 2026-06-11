@@ -141,7 +141,7 @@
         }
 
         function sendDataToPython(data) {
-            sendMessageToStreamlitClient("streamlit:setComponentValue", data);
+            sendMessageToStreamlitClient("streamlit:setComponentValue", { value: data });
         }
 
         // Notify Streamlit that component is ready
