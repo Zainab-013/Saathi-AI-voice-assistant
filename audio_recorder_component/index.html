@@ -169,14 +169,25 @@
         const rippleEl = document.getElementById("ripple-el");
         const statusTxt = document.getElementById("status-txt");
 
+        function updateFrameHeight() {
+            const height = document.body.scrollHeight || 200;
+            sendMessageToStreamlitClient("streamlit:setFrameHeight", { height: height });
+        }
+
         // Set initial canvas size
         function resizeCanvas() {
             canvas.width = canvas.clientWidth;
             canvas.height = canvas.clientHeight;
             drawWaveformEmpty();
         }
-        window.onload = resizeCanvas;
-        window.onresize = resizeCanvas;
+        window.onload = () => {
+            resizeCanvas();
+            setTimeout(updateFrameHeight, 50);
+        };
+        window.onresize = () => {
+            resizeCanvas();
+            updateFrameHeight();
+        };
 
         function drawWaveformEmpty() {
             canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
